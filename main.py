@@ -1,4 +1,3 @@
-from aiogram import Bot
 import asyncio
 import feedparser
 import os
@@ -6,33 +5,40 @@ import re
 import hashlib
 from difflib import SequenceMatcher
 
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+
 # ================= CONFIG =================
 
-TOKEN = os.getenv("8965358674:AAFxS_fde2c-EIltILySwB4rQmV1itTAUFA")
+TOKEN = os.getenv("BOT_TOKEN", "8965358674:AAFxS_fde2c-EIltILySwB4rQmV1itTAUFA")
 CHANNEL_ID = "@footballradar11"
 
 RSS_FEEDS = [
     "https://www.championat.com/rss/news/football/",
     "https://www.soccer.ru/rss",
     "https://www.euro-football.ru/article/29/feed",
+    "https://www.skysports.com/rss/12040",
 ]
 
 POST_DELAY = 1800
-CHECK_DELAY = 60
 MAX_POSTS_PER_RUN = 1
 
-DEFAULT_IMAGE = "https://i.imgur.com/zYIlgBl.jpeg"
+# ================= BOT INIT (ВАЖНО) =================
 
-bot = Bot(token=TOKEN)
+bot = Bot(
+    token=TOKEN,
+    default=DefaultBotProperties(parse_mode="HTML")
+)
 
-sent_file = "sent_news.txt"
+dp = Dispatcher()
 
 # ================= STORAGE =================
+
+sent_file = "sent_news.txt"
 
 def load_sent():
     if not os.path.exists(sent_file):
         return set()
-
     with open(sent_file, "r", encoding="utf-8") as f:
         return set(f.read().splitlines())
 
@@ -42,44 +48,41 @@ def save_sent(news_id):
 
 sent_news = load_sent()
 
-# ================= CLEAN =================
+# ================= TEXT CLEAN =================
 
 def strip_links(text: str) -> str:
     if not text:
         return ""
-
     text = re.sub(r"<.*?>", "", text)
-    text = re.sub(r"http\\S+", "", text)
-    text = re.sub(r"www\\.\\S+", "", text)
-    text = re.sub(r"\\s+", " ", text)
-
+    text = re.sub(r"http\S+", "", text)
+    text = re.sub(r"www\.\S+", "", text)
+    text = re.sub(r"\(.*?\)", "", text)
+    text = re.sub(r"\[.*?\]", "", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 # ================= NORMALIZE =================
 
 def normalize_text(text):
     text = text.lower()
-    text = re.sub(r"http\\S+", "", text)
+    text = re.sub(r"http\S+", "", text)
+    text = re.sub(r"www\.\S+", "", text)
     text = re.sub(r"[^a-zA-Zа-яА-Я0-9 ]", "", text)
-    text = re.sub(r"\\s+", " ", text)
+    text = re.sub(r"\s+", " ", text)
     return text.strip()
 
 recent_titles = []
 
 def is_duplicate(title):
     global recent_titles
-
     clean_title = normalize_text(title)
 
     for old in recent_titles:
-        similarity = SequenceMatcher(None, clean_title, old).ratio()
-
-        if similarity > 0.75:
+        if SequenceMatcher(None, clean_title, old).ratio() > 0.75:
             return True
 
     recent_titles.append(clean_title)
     recent_titles = recent_titles[-200:]
-
     return False
 
 def make_id(title):
@@ -88,118 +91,59 @@ def make_id(title):
 # ================= FILTER =================
 
 def is_football(text: str) -> bool:
-    keywords = [
-        "футбол",
-        "матч",
-        "гол",
-        "лига",
-        "uefa",
-        "transfer",
-        "goal",
-        "league",
-        "chelsea",
-        "arsenal",
-        "real madrid",
-        "barcelona",
-        "manchester"
-    ]
-
+    keywords = ["футбол", "матч", "гол", "лига", "uefa", "transfer", "goal", "league"]
     return any(k in text.lower() for k in keywords)
 
 def is_transfer(text: str) -> bool:
-    keywords = [
-        "transfer",
-        "signed",
-        "loan",
-        "deal",
-        "контракт",
-        "перешел",
-        "трансфер"
-    ]
-
+    keywords = ["transfer", "signed", "loan", "deal", "контракт", "перешел"]
     return any(k in text.lower() for k in keywords)
 
 # ================= IMAGE =================
 
 def get_image(entry):
-
-    # media_content
-    try:
-        if "media_content" in entry:
+    if hasattr(entry, "media_content"):
+        try:
             return entry.media_content[0]["url"]
-    except:
-        pass
+        except:
+            pass
 
-    # media_thumbnail
-    try:
-        if "media_thumbnail" in entry:
+    if hasattr(entry, "media_thumbnail"):
+        try:
             return entry.media_thumbnail[0]["url"]
-    except:
-        pass
+        except:
+            pass
 
-    # enclosure
-    try:
-        if "links" in entry:
-            for link in entry.links:
-                if "image" in link.get("type", ""):
-                    return link.href
-    except:
-        pass
-
-    # from summary html
-    try:
-        summary = entry.summary
-        img = re.search(r'<img.*?src="(.*?)"', summary)
-
-        if img:
-            return img.group(1)
-    except:
-        pass
-
-    return DEFAULT_IMAGE
+    return None
 
 # ================= POSTS =================
 
 def media_post(title, summary):
-
-    summary = strip_links(summary)[:300]
-
-    return f"""
-⚽ BREAKING
+    summary = strip_links(summary)[:350]
+    return f"""⚽ BREAKING
 
 <b>{title}</b>
 
 📰 {summary}
 
-🏟 Football Radar
-"""
+🏟 Football Radar"""
 
 def romano_post(title, summary):
-
-    summary = strip_links(summary)[:250]
-
-    return f"""
-🚨 TRANSFER UPDATE
+    summary = strip_links(summary)[:300]
+    return f"""🚨 TRANSFER UPDATE
 
 <b>{title}</b>
 
 📰 {summary}
 
 🔥 Negotiations ongoing
+🏟 Football Radar"""
 
-🏟 Football Radar
-"""
-
-# ================= NEWS =================
+# ================= CHECK NEWS =================
 
 async def check_news():
-
     posted = 0
 
     for url in RSS_FEEDS:
-
-        print("CHECK:", url)
-
         feed = feedparser.parse(url)
 
         for entry in reversed(feed.entries[:20]):
@@ -212,9 +156,7 @@ async def check_news():
             if is_duplicate(title):
                 continue
 
-            summary = strip_links(
-                getattr(entry, "summary", "")
-            )
+            summary = strip_links(getattr(entry, "summary", ""))
 
             full_text = title + " " + summary
 
@@ -227,6 +169,8 @@ async def check_news():
                 continue
 
             image = get_image(entry)
+            if not image:
+                continue
 
             if is_transfer(full_text):
                 text = romano_post(title, summary)
@@ -234,26 +178,19 @@ async def check_news():
                 text = media_post(title, summary)
 
             try:
-
-                print("POST:", title)
-                print("IMAGE:", image)
-
                 await bot.send_photo(
                     chat_id=CHANNEL_ID,
                     photo=image,
-                    caption=text,
-                    parse_mode="HTML"
+                    caption=text
                 )
 
                 sent_news.add(news_id)
                 save_sent(news_id)
 
                 posted += 1
-
-                print("SUCCESS")
+                print("✔ Posted:", title)
 
             except Exception as e:
-
                 print("ERROR:", e)
 
             await asyncio.sleep(POST_DELAY)
@@ -261,17 +198,11 @@ async def check_news():
 # ================= MAIN =================
 
 async def main():
-
     print("⚽ BOT STARTED")
 
     while True:
+        await check_news()
+        await asyncio.sleep(60)
 
-        try:
-            await check_news()
-
-        except Exception as e:
-            print("MAIN ERROR:", e)
-
-        await asyncio.sleep(CHECK_DELAY)
-
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
