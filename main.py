@@ -3,12 +3,9 @@ import asyncio
 import feedparser
 import os
 import re
-import random
-import hashlib
-from difflib import SequenceMatcher
 
 # ================= CONFIG =================
-TOKEN = "8965358674:AAFYv8_GXcYJ-biwnLN3gXzfXj0Tx1_6oCo"
+TOKEN = os.getenv("8965358674:AAFwbIxcdVN40iYi--Z8VSZVo_ekWCard_U")
 CHANNEL_ID = "@footballradar11"
 
 RSS_FEEDS = [
