@@ -1,247 +1,60 @@
 import asyncio
-import feedparser
 import os
-import re
-import hashlib
-from difflib import SequenceMatcher
-
+import feedparser
 from aiogram import Bot
 from aiogram.client.default import DefaultBotProperties
 
-# ================= CONFIG =================
-
 TOKEN = os.getenv("BOT_TOKEN")
-
-print("TOKEN:", TOKEN)
 
 if not TOKEN:
     print("BOT TOKEN NOT FOUND")
-    exit()
+    raise SystemExit
 
 CHANNEL_ID = "@footballradar11"
-
-RSS_FEEDS = [
-    "https://www.championat.com/rss/news/football/",
-    "https://www.soccer.ru/rss",
-    "https://www.euro-football.ru/article/29/feed",
-    "https://www.skysports.com/rss/12040",
-]
-
-POST_DELAY = 1800
-CHECK_DELAY = 60
-MAX_POSTS_PER_RUN = 1
-
-# ================= BOT =================
 
 bot = Bot(
     token=TOKEN,
     default=DefaultBotProperties(parse_mode="HTML")
 )
 
-# ================= MEMORY STORAGE =================
-
-sent_news = set()
-recent_titles = []
-
-# ================= TEXT CLEAN =================
-
-def strip_links(text: str) -> str:
-    if not text:
-        return ""
-
-    text = re.sub(r"<.*?>", "", text)
-    text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"www\.\S+", "", text)
-    text = re.sub(r"\(.*?\)", "", text)
-    text = re.sub(r"\[.*?\]", "", text)
-    text = re.sub(r"\s+", " ", text)
-
-    return text.strip()
-
-# ================= NORMALIZE =================
-
-def normalize_text(text: str):
-    text = text.lower()
-
-    text = re.sub(r"http\S+", "", text)
-    text = re.sub(r"www\.\S+", "", text)
-    text = re.sub(r"[^a-zA-Zа-яА-Я0-9 ]", "", text)
-    text = re.sub(r"\s+", " ", text)
-
-    return text.strip()
-
-# ================= DUPLICATES =================
-
-def is_duplicate(title):
-    global recent_titles
-
-    clean_title = normalize_text(title)
-
-    for old in recent_titles:
-        if SequenceMatcher(None, clean_title, old).ratio() > 0.75:
-            return True
-
-    recent_titles.append(clean_title)
-    recent_titles = recent_titles[-200:]
-
-    return False
-
-def make_id(title):
-    return hashlib.md5(
-        normalize_text(title).encode()
-    ).hexdigest()
-
-# ================= FILTER =================
-
-def is_football(text: str) -> bool:
-    keywords = [
-        "футбол",
-        "матч",
-        "гол",
-        "лига",
-        "uefa",
-        "transfer",
-        "goal",
-        "league",
-    ]
-
-    return any(k in text.lower() for k in keywords)
-
-def is_transfer(text: str) -> bool:
-    keywords = [
-        "transfer",
-        "signed",
-        "loan",
-        "deal",
-        "контракт",
-        "перешел",
-    ]
-
-    return any(k in text.lower() for k in keywords)
-
-# ================= IMAGE =================
-
-def get_image(entry):
-    if hasattr(entry, "media_content"):
-        try:
-            return entry.media_content[0]["url"]
-        except:
-            pass
-
-    if hasattr(entry, "media_thumbnail"):
-        try:
-            return entry.media_thumbnail[0]["url"]
-        except:
-            pass
-
-    return None
-
-# ================= POSTS =================
-
-def media_post(title, summary):
-    summary = strip_links(summary)[:350]
-
-    return f"""⚽ BREAKING
-
-<b>{title}</b>
-
-📰 {summary}
-
-🏟 Football Radar"""
-
-def romano_post(title, summary):
-    summary = strip_links(summary)[:300]
-
-    return f"""🚨 TRANSFER UPDATE
-
-<b>{title}</b>
-
-📰 {summary}
-
-🔥 Negotiations ongoing
-🏟 Football Radar"""
-
-# ================= NEWS =================
+RSS_FEEDS = [
+    "https://www.championat.com/rss/news/football/",
+]
 
 async def check_news():
-    posted = 0
-
     for url in RSS_FEEDS:
 
-        try:
-            feed = feedparser.parse(url)
+        print("CHECK RSS:", url)
 
-        except Exception as e:
-            print("RSS ERROR:", e)
-            continue
+        feed = feedparser.parse(url)
 
-        for entry in reversed(feed.entries[:20]):
+        for entry in feed.entries[:1]:
 
-            if posted >= MAX_POSTS_PER_RUN:
-                return
+            title = entry.title
+
+            print("NEWS:", title)
 
             try:
-                title = strip_links(entry.title)
-
-                if is_duplicate(title):
-                    continue
-
-                summary = strip_links(
-                    getattr(entry, "summary", "")
-                )
-
-                full_text = f"{title} {summary}"
-
-                if not is_football(full_text):
-                    continue
-
-                news_id = make_id(title)
-
-                if news_id in sent_news:
-                    continue
-
-                image = get_image(entry)
-
-                if not image:
-                    continue
-
-                if is_transfer(full_text):
-                    text = romano_post(title, summary)
-                else:
-                    text = media_post(title, summary)
-
-                await bot.send_photo(
+                await bot.send_message(
                     chat_id=CHANNEL_ID,
-                    photo=image,
-                    caption=text
+                    text=f"⚽ {title}"
                 )
 
-                sent_news.add(news_id)
-
-                posted += 1
-
-                print("✔ Posted:", title)
-
-                await asyncio.sleep(POST_DELAY)
+                print("MESSAGE SENT")
 
             except Exception as e:
-                print("POST ERROR:", e)
-
-# ================= MAIN =================
+                print("SEND ERROR:", e)
 
 async def main():
-    print("⚽ BOT STARTED")
+    print("BOT STARTED")
 
     while True:
         try:
             await check_news()
-            await asyncio.sleep(CHECK_DELAY)
-
         except Exception as e:
-            print("MAIN LOOP ERROR:", e)
-            await asyncio.sleep(5)
+            print("MAIN ERROR:", e)
 
-# ================= START =================
+        await asyncio.sleep(60)
 
 if __name__ == "__main__":
     asyncio.run(main())
