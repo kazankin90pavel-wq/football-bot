@@ -8,7 +8,7 @@ from difflib import SequenceMatcher
 
 # ================= CONFIG =================
 
-TOKEN = "8965358674:AAFxS_fde2c-EIltILySwB4rQmV1itTAUFA"
+TOKEN = os.getenv("8965358674:AAFxS_fde2c-EIltILySwB4rQmV1itTAUFA")
 CHANNEL_ID = "@footballradar11"
 
 RSS_FEEDS = [
